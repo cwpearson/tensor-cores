@@ -1,5 +1,6 @@
 # 3.17+ for CMAKE_CUDA_KNOWN_FEATURES/cuda_std_11
-cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
+# 3.18 for CMAKE_CUDA_ARCHITECTURES
+cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
 project(tc LANGUAGES CXX CUDA VERSION 0.1.0.0)
 
