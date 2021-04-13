@@ -6,6 +6,7 @@
 #include <numeric>
 
 #include <cuda_runtime.h>
+#include <mma.h>
 
 inline void checkCuda(cudaError_t result, const char *file, const int line)
 {
@@ -125,30 +126,6 @@ void cpu(float *_c, const float *_a, const float *_b, const int m, const int n, 
 #undef c
 }
 
-void cpu_tiled(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
-{
-#define a(_i, _j) _a[(_i)*p + (_j)]
-#define b(_i, _j) _b[(_i)*n + (_j)]
-#define c(_i, _j) _c[(_i)*n + (_j)]
-
-    for (int i = 0; i < m; ++i)
-    {
-        for (int j = 0; j < n; ++j)
-        {
-            float acc = 0;
-            for (int k = 0; k < p; ++k)
-            {
-                acc += a(i, k) * b(k, j);
-            }
-            c(i, j) = acc;
-        }
-    }
-
-#undef a
-#undef b
-#undef c
-}
-
 /* a*b=c
    a[m x p]
    b[p x n]
@@ -179,6 +156,84 @@ __global__ void mm(float *_c, const float *_a, const float *_b, const int m, con
 #undef b
 #undef c
 }
+
+/* a*b=c
+   a[m x p]
+   b[p x n]
+   c[m x n]
+
+   all row-major
+
+   one tile per warp
+*/
+__global__ void mm_tc(half *_c, const half *_a, const half *_b, const int m, const int n, const int p)
+{
+#define a(_i, _j) (_a[(_i)*p + (_j)])
+#define b(_i, _j) (_b[(_i)*n + (_j)])
+#define c(_i, _j) (_c[(_i)*n + (_j)])
+
+    constexpr int WMMA_TILE_M = 16;
+    constexpr int WMMA_TILE_N = 16;
+    constexpr int WMMA_TILE_P = 16;
+
+    using nvcuda::wmma::matrix_a;
+    using nvcuda::wmma::matrix_b;
+    using nvcuda::wmma::accumulator;
+    using nvcuda::wmma::fragment;
+    using nvcuda::wmma::col_major; // a type
+    using nvcuda::wmma::row_major; // a type
+    using nvcuda::wmma::mem_row_major; // a layout_t
+    using nvcuda::wmma::fill_fragment;
+    using nvcuda::wmma::load_matrix_sync;
+    using nvcuda::wmma::store_matrix_sync;
+    using nvcuda::wmma::mma_sync;
+
+    typedef fragment<matrix_a, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, half, row_major> FragA;
+    typedef fragment<matrix_b, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, half, row_major> FragB;
+    typedef fragment<accumulator, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, float> FragC;
+
+    FragA fa;
+    FragB fb;
+    FragC fc;
+
+    fill_fragment(fc, 0.0f);
+
+    const int wx = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    const int wy = blockIdx.y * blockDim.y + threadIdx.y;
+
+    for (int t = 0; t < p; t += WMMA_TILE_P)
+    {
+        // row and col of beginning of tile
+        int aRow = wy * WMMA_TILE_M;
+        int aCol = t;
+        const int bRow = t;
+        const int bCol = wx * WMMA_TILE_N;
+
+
+        // TODO -- tile may go outside of the matrix
+        if (aRow < m && aCol < p && bRow < p && bCol < n) {
+
+            // cast to half for now
+            load_matrix_sync(fa, (half*)&a(aRow, aCol), unsigned(p));
+            load_matrix_sync(fb, (half*)&b(bRow, bCol), unsigned(n));
+            mma_sync(fc, fa, fb, fc);
+        }
+
+    }
+
+    int cRow = wy * WMMA_TILE_M;
+    int cCol = wx * WMMA_TILE_N;
+
+    if (cRow < m && cCol < n) {
+        store_matrix_sync(&c(cRow, cCol), fc, n, mem_row_major);
+    }
+
+
+#undef a
+#undef b
+#undef c
+}
+
 
 /* a*b=c
    a[m x p]
