@@ -125,6 +125,30 @@ void cpu(float *_c, const float *_a, const float *_b, const int m, const int n, 
 #undef c
 }
 
+void cpu_tiled(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+{
+#define a(_i, _j) _a[(_i)*p + (_j)]
+#define b(_i, _j) _b[(_i)*n + (_j)]
+#define c(_i, _j) _c[(_i)*n + (_j)]
+
+    for (int i = 0; i < m; ++i)
+    {
+        for (int j = 0; j < n; ++j)
+        {
+            float acc = 0;
+            for (int k = 0; k < p; ++k)
+            {
+                acc += a(i, k) * b(k, j);
+            }
+            c(i, j) = acc;
+        }
+    }
+
+#undef a
+#undef b
+#undef c
+}
+
 /* a*b=c
    a[m x p]
    b[p x n]
@@ -293,13 +317,13 @@ int main(void)
 
     srand(100);
 
-    for (int ti = 0; ti < 100; ++ti)
+    for (int ti = 0; ti < 1000; ++ti)
     {
         // while(true) {
 
         Product product = create(2, 10);
 
-        cout << "[" << product.m << "," << product.n << "," << product.p << "] " << product.flop() << flush;
+        cout << product.m << "," << product.n << "," << product.p << "," << product.flop() << flush;
 
         {
             auto start = Clock::now();
@@ -308,7 +332,7 @@ int main(void)
                 cpu(product.ce, product.a, product.b, product.m, product.n, product.p);
             }
             Duration elapsed = Clock::now() - start;
-            cout << " " << elapsed.count() / 10 << flush;
+            cout << "," << elapsed.count() / 10 << flush;
         }
 
 #if 1
@@ -326,7 +350,7 @@ int main(void)
                 CUDA_RUNTIME(cudaEventElapsedTime(&millis, eStart, eStop));
                 elapsed += millis / 1e3;
             }
-            cout << " " << elapsed / 10 << flush;
+            cout << "," << elapsed / 10 << flush;
 
             check(product);
         }
@@ -338,7 +362,6 @@ int main(void)
             constexpr int TILE_X = 32;
             constexpr int TILE_Y = 8;
             constexpr int TILE_P = SH_PER_BLOCK / (TILE_X + TILE_Y) / sizeof(float);
-            // cerr << "(TILE_P=" << TILE_P << ")" << endl;
             constexpr dim3 bd(TILE_X, TILE_Y, 1);
             const dim3 gd((product.n + bd.x - 1) / bd.x, (product.m + bd.y - 1) / bd.y, 1);
 
@@ -353,7 +376,7 @@ int main(void)
                 CUDA_RUNTIME(cudaEventElapsedTime(&millis, eStart, eStop));
                 elapsed += millis / 1e3;
             }
-            cout << " " << elapsed / 10 << flush;
+            cout << "," << elapsed / 10 << flush;
 
             check(product);
         }
