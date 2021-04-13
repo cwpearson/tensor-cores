@@ -1,0 +1,358 @@
+#include <iostream>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <numeric>
+
+#include <cuda_runtime.h>
+
+inline void checkCuda(cudaError_t result, const char *file, const int line)
+{
+    if (result != cudaSuccess)
+    {
+        fprintf(stderr, "%s:%d: CUDA Runtime Error %d: %s\n", file, line, int(result), cudaGetErrorString(result));
+        exit(-1);
+    }
+}
+#define CUDA_RUNTIME(stmt) checkCuda(stmt, __FILE__, __LINE__);
+
+using std::cerr;
+using std::cout;
+using std::endl;
+using std::flush;
+
+void fill(float *a, const int m, const int n)
+{
+    for (int i = 0; i < m * n; ++i)
+    {
+        a[i] = static_cast<float>(rand()) / RAND_MAX;
+    }
+}
+
+struct Product
+{
+    float *a;
+    float *b;
+    float *ce; // expected
+    float *ca; // actual
+    int m;
+    int n;
+    int p;
+
+    size_t flop() const
+    {
+        return size_t(m) * size_t(n) * size_t(p) * 2;
+    }
+};
+
+/* a*b=c
+   a[m x p]
+   b[p x n]
+   c[m x n]
+*/
+Product create(const int m, const int n, const int p)
+{
+    Product ret;
+    ret.m = m;
+    ret.n = n;
+    ret.p = p;
+    cudaMallocManaged(&ret.a, sizeof(float) * m * p);
+    fill(ret.a, m, p);
+    cudaMallocManaged(&ret.b, sizeof(float) * p * n);
+    fill(ret.b, p, n);
+    cudaMallocManaged(&ret.ce, sizeof(float) * m * n);
+    cudaMallocManaged(&ret.ca, sizeof(float) * m * n);
+    return ret;
+}
+
+Product create(const int lo, const int hi)
+{
+    int m = rand() % (hi - lo) + lo;
+    int n = rand() % (hi - lo) + lo;
+    int p = rand() % (hi - lo) + lo;
+    return create(m, n, p);
+}
+
+void destroy(Product &prod)
+{
+    CUDA_RUNTIME(cudaFree(prod.a));
+    CUDA_RUNTIME(cudaFree(prod.b));
+    CUDA_RUNTIME(cudaFree(prod.ce));
+    CUDA_RUNTIME(cudaFree(prod.ca));
+    prod.m = 0;
+    prod.n = 0;
+    prod.p = 0;
+}
+
+/* a*b=c
+   a[m x p]
+   b[p x n]
+   c[m x n]
+
+   all row-major
+*/
+void cpu(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+{
+#define a(i, j) _a[i * p + j]
+#define b(i, j) _b[i * n + j]
+#define c(i, j) _c[i * n + j]
+
+    for (int i = 0; i < m; ++i)
+    {
+        for (int j = 0; j < n; ++j)
+        {
+            float acc = 0;
+            for (int k = 0; k < p; ++k)
+            {
+                acc += a(i, k) * b(k, j);
+            }
+            c(i, j) = acc;
+        }
+    }
+
+#undef a
+#undef b
+#undef c
+}
+
+/* a*b=c
+   a[m x p]
+   b[p x n]
+   c[m x n]
+
+   all row-major
+*/
+__global__ void mm(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+{
+#define a(i, j) _a[i * p + j]
+#define b(i, j) _b[i * n + j]
+#define c(i, j) _c[i * n + j]
+
+    for (int i = blockIdx.y * blockDim.y + threadIdx.y; i < m; i += blockDim.y * gridDim.y)
+    {
+        for (int j = blockIdx.x * blockDim.x + threadIdx.x; j < n; j += blockDim.x * gridDim.x)
+        {
+            float acc = 0;
+            for (int k = 0; k < p; ++k)
+            {
+                acc += a(i, k) * b(k, j);
+            }
+            c(i, j) = acc;
+        }
+    }
+
+#undef a
+#undef b
+#undef c
+}
+
+/* a*b=c
+   a[m x p]
+   b[p x n]
+   c[m x n]
+
+   all row-major
+
+   each thread-block creates a TILE_Y by TILE_X block of the product matrix
+   The tile loaded from A is BDY x TILE_P and from B is BDX x TILE_P
+
+   The x and y block dim should match BDX and BDY respectively
+*/
+template <int TILE_X, int TILE_Y, int TILE_P>
+__global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+{
+#define a(i, j) _a[i * p + j]
+#define b(i, j) _b[i * n + j]
+#define c(i, j) _c[i * n + j]
+
+    __shared__ float sA[TILE_Y][TILE_P];
+    __shared__ float sB[TILE_P][TILE_X];
+
+    // TODO - loop, but all threads should be active as long as at least one is contributing a
+    const int i = blockIdx.y * TILE_Y + threadIdx.y;
+    const int j = blockIdx.x * TILE_X + threadIdx.x;
+
+    // t-th tile in A and B
+    float acc = 0;
+    for (int t = 0; t < (p + TILE_P - 1) / TILE_P; ++t)
+    {
+
+
+
+        // collab load tile of A. X dim needs to cover TILE_P
+        if (i < m)
+        {
+            for (int x = threadIdx.x; x < TILE_P && t * TILE_P + x < p; x += TILE_X)
+            {
+                sA[threadIdx.y][x] = a(i, t * TILE_P + x);
+
+                if (i == 0) {
+                    printf("t=%d sA(%d,%d) = a(%d,%d)\n", t, threadIdx.y, x, i, t * TILE_P + x);
+                }
+
+            }
+        }
+        // collab load tile of B. Y dim needs to cover TILE_P
+        if (j < n)
+        {
+            for (int y = threadIdx.y; y < TILE_P && t * TILE_P + y < p; y += TILE_Y)
+            {
+                sB[y][threadIdx.x] = b(t * TILE_P + y, j);
+
+                if (j == 0) {
+                    printf("t=%d sB(%d,%d) = b(%d,%d)\n", t, y, threadIdx.x, t * TILE_P + y, j);
+                }
+
+            }
+        }
+        __syncthreads();
+
+        // partial product from this tile
+        for (int k = 0; k < TILE_P && t * TILE_P + k < p; ++k)
+        {
+            
+        if (i == 0 && j == 0) {
+            printf("t=%d sa(%d,%d) * sb(%d,%d)\n", t, threadIdx.y, k, k, threadIdx.x);
+        }
+
+            acc += sA[threadIdx.y][k] * sB[k][threadIdx.x];
+        }
+        __syncthreads();
+    }
+
+    if (i < m && j < n)
+    {
+        c(i, j) = acc;
+    }
+
+#undef a
+#undef b
+#undef c
+}
+
+bool almost_equal(float a, float b,
+                  float maxRelativeDiff = std::numeric_limits<float>::epsilon())
+{
+    if (std::isnan(a) || std::isnan(b))
+    {
+        return false;
+    }
+
+    const float difference = fabs(a - b);
+
+    // Scale to the largest value.
+    a = fabs(a);
+    b = fabs(b);
+    const float scaledEpsilon =
+        maxRelativeDiff * max(a, b);
+
+    return difference <= scaledEpsilon;
+}
+
+void check(const Product &product)
+{
+#define ca(i, j) product.ca[i * product.n + j]
+#define ce(i, j) product.ce[i * product.n + j]
+
+    for (int i = 0; i < product.m; ++i)
+    {
+        for (int j = 0; j < product.n; ++j)
+        {
+            if (!almost_equal(ca(i, j), ce(i, j), 1e-6))
+            {
+                cerr << "ERR at " << i << " " << j << " "
+                     << "ce=" << ce(i, j) << " ca=" << ca(i, j) << endl;
+            }
+        }
+    }
+
+#undef ca
+#undef ce
+}
+
+int main(void)
+{
+    typedef std::chrono::system_clock Clock;
+    typedef std::chrono::duration<double> Duration;
+    typedef std::chrono::time_point<Clock, Duration> Time;
+
+    cudaStream_t stream;
+    CUDA_RUNTIME(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    cudaEvent_t eStart, eStop;
+    CUDA_RUNTIME(cudaEventCreate(&eStart));
+    CUDA_RUNTIME(cudaEventCreate(&eStop));
+
+    srand(100);
+
+    for (int ti = 0; ti < 1; ++ti)
+    {
+        // while(true) {
+
+        Product product = create(4, 100);
+
+        cout << "[" << product.m << "," << product.n << "," << product.p << "] " << product.flop() << flush;
+
+        {
+            auto start = Clock::now();
+            for (int i = 0; i < 10; ++i)
+            {
+                cpu(product.ce, product.a, product.b, product.m, product.n, product.p);
+            }
+            Duration elapsed = Clock::now() - start;
+            cout << " " << elapsed.count() / 10 << flush;
+        }
+
+#if 0
+        {
+            double elapsed = 0;
+            dim3 bd(32, 8, 1);
+            dim3 gd((product.m + bd.y - 1) / bd.y, (product.n + bd.x - 1) / bd.x, 1);
+            for (int i = 0; i < 10; ++i)
+            {
+                cudaEventRecord(eStart, stream);
+                mm<<<gd, bd, 0, stream>>>(product.ca, product.a, product.b, product.m, product.n, product.p);
+                cudaEventRecord(eStop, stream);
+                CUDA_RUNTIME(cudaEventSynchronize(eStop));
+                float millis;
+                CUDA_RUNTIME(cudaEventElapsedTime(&millis, eStart, eStop));
+                elapsed += millis / 1e3;
+            }
+            cout << " " << elapsed / 10 << flush;
+
+            check(product);
+        }
+#endif
+        {
+            constexpr int SH_PER_BLOCK = 2 * 1024; // target shared memory useage per block
+            constexpr int TILE_X = 32;
+            constexpr int TILE_Y = 8;
+            constexpr int TILE_P = SH_PER_BLOCK / (TILE_X + TILE_Y) / sizeof(float);
+            cerr << "(TILE_P=" << TILE_P << ")" << endl;
+            constexpr dim3 bd(TILE_X, TILE_Y, 1);
+            const dim3 gd((product.n + bd.x - 1) / bd.x, (product.m + bd.y - 1) / bd.y, 1);
+
+            double elapsed = 0;
+            for (int i = 0; i < 1; ++i)
+            {
+                cudaEventRecord(eStart, stream);
+                mm_s<TILE_X, TILE_Y, TILE_P><<<gd, bd, 0, stream>>>(product.ca, product.a, product.b, product.m, product.n, product.p);
+                cudaEventRecord(eStop, stream);
+                CUDA_RUNTIME(cudaEventSynchronize(eStop));
+                float millis;
+                CUDA_RUNTIME(cudaEventElapsedTime(&millis, eStart, eStop));
+                elapsed += millis / 1e3;
+            }
+            cout << " " << elapsed / 10 << flush;
+
+            check(product);
+        }
+
+        destroy(product);
+        cout << endl;
+    }
+
+    CUDA_RUNTIME(cudaStreamDestroy(stream));
+    CUDA_RUNTIME(cudaEventDestroy(eStart));
+    CUDA_RUNTIME(cudaEventDestroy(eStop));
+}
