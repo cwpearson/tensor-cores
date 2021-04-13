@@ -68,9 +68,18 @@ Product create(const int m, const int n, const int p)
 
 Product create(const int lo, const int hi)
 {
-    int m = rand() % (hi - lo) + lo;
-    int n = rand() % (hi - lo) + lo;
-    int p = rand() % (hi - lo) + lo;
+
+    float logm = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
+    float logn = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
+    float logp = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
+
+    int m = std::pow(2, logm);
+    int n = std::pow(2, logn);
+    int p = std::pow(2, logp);
+
+    // m = 35;
+    // n = 12;
+    // p = 734;
     return create(m, n, p);
 }
 
@@ -94,9 +103,9 @@ void destroy(Product &prod)
 */
 void cpu(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
 {
-#define a(i, j) _a[i * p + j]
-#define b(i, j) _b[i * n + j]
-#define c(i, j) _c[i * n + j]
+#define a(_i, _j) _a[(_i)*p + (_j)]
+#define b(_i, _j) _b[(_i)*n + (_j)]
+#define c(_i, _j) _c[(_i)*n + (_j)]
 
     for (int i = 0; i < m; ++i)
     {
@@ -125,9 +134,9 @@ void cpu(float *_c, const float *_a, const float *_b, const int m, const int n, 
 */
 __global__ void mm(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
 {
-#define a(i, j) _a[i * p + j]
-#define b(i, j) _b[i * n + j]
-#define c(i, j) _c[i * n + j]
+#define a(_i, _j) _a[(_i)*p + (_j)]
+#define b(_i, _j) _b[(_i)*n + (_j)]
+#define c(_i, _j) _c[(_i)*n + (_j)]
 
     for (int i = blockIdx.y * blockDim.y + threadIdx.y; i < m; i += blockDim.y * gridDim.y)
     {
@@ -162,9 +171,9 @@ __global__ void mm(float *_c, const float *_a, const float *_b, const int m, con
 template <int TILE_X, int TILE_Y, int TILE_P>
 __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
 {
-#define a(i, j) _a[i * p + j]
-#define b(i, j) _b[i * n + j]
-#define c(i, j) _c[i * n + j]
+#define a(_i, _j) _a[(_i)*p + (_j)]
+#define b(_i, _j) _b[(_i)*n + (_j)]
+#define c(_i, _j) _c[(_i)*n + (_j)]
 
     __shared__ float sA[TILE_Y][TILE_P];
     __shared__ float sB[TILE_P][TILE_X];
@@ -178,8 +187,6 @@ __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, c
     for (int t = 0; t < (p + TILE_P - 1) / TILE_P; ++t)
     {
 
-
-
         // collab load tile of A. X dim needs to cover TILE_P
         if (i < m)
         {
@@ -187,10 +194,10 @@ __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, c
             {
                 sA[threadIdx.y][x] = a(i, t * TILE_P + x);
 
-                if (i == 0) {
-                    printf("t=%d sA(%d,%d) = a(%d,%d)\n", t, threadIdx.y, x, i, t * TILE_P + x);
-                }
-
+                // if (i == 0)
+                // {
+                //     printf("t=%d sA(%d,%d) = a(%d,%d)\n", t, threadIdx.y, x, i, t * TILE_P + x);
+                // }
             }
         }
         // collab load tile of B. Y dim needs to cover TILE_P
@@ -200,10 +207,10 @@ __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, c
             {
                 sB[y][threadIdx.x] = b(t * TILE_P + y, j);
 
-                if (j == 0) {
-                    printf("t=%d sB(%d,%d) = b(%d,%d)\n", t, y, threadIdx.x, t * TILE_P + y, j);
-                }
-
+                // if (j == 0)
+                // {
+                //     printf("t=%d ty=%d TILE_Y=%d, sB(%d,%d) = b(%d,%d)\n", t, threadIdx.y, TILE_Y, y, threadIdx.x, t * TILE_P + y, j);
+                // }
             }
         }
         __syncthreads();
@@ -211,10 +218,11 @@ __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, c
         // partial product from this tile
         for (int k = 0; k < TILE_P && t * TILE_P + k < p; ++k)
         {
-            
-        if (i == 0 && j == 0) {
-            printf("t=%d sa(%d,%d) * sb(%d,%d)\n", t, threadIdx.y, k, k, threadIdx.x);
-        }
+
+            // if (i == 0 && j == 0)
+            // {
+            //     printf("t=%d sa(%d,%d) * sb(%d,%d)\n", t, threadIdx.y, k, k, threadIdx.x);
+            // }
 
             acc += sA[threadIdx.y][k] * sB[k][threadIdx.x];
         }
@@ -259,7 +267,7 @@ void check(const Product &product)
     {
         for (int j = 0; j < product.n; ++j)
         {
-            if (!almost_equal(ca(i, j), ce(i, j), 1e-6))
+            if (!almost_equal(ca(i, j), ce(i, j), 1e-5))
             {
                 cerr << "ERR at " << i << " " << j << " "
                      << "ce=" << ce(i, j) << " ca=" << ca(i, j) << endl;
@@ -285,11 +293,11 @@ int main(void)
 
     srand(100);
 
-    for (int ti = 0; ti < 1; ++ti)
+    for (int ti = 0; ti < 100; ++ti)
     {
         // while(true) {
 
-        Product product = create(4, 100);
+        Product product = create(2, 10);
 
         cout << "[" << product.m << "," << product.n << "," << product.p << "] " << product.flop() << flush;
 
@@ -303,7 +311,7 @@ int main(void)
             cout << " " << elapsed.count() / 10 << flush;
         }
 
-#if 0
+#if 1
         {
             double elapsed = 0;
             dim3 bd(32, 8, 1);
@@ -323,17 +331,19 @@ int main(void)
             check(product);
         }
 #endif
+
+#if 1
         {
             constexpr int SH_PER_BLOCK = 2 * 1024; // target shared memory useage per block
             constexpr int TILE_X = 32;
             constexpr int TILE_Y = 8;
             constexpr int TILE_P = SH_PER_BLOCK / (TILE_X + TILE_Y) / sizeof(float);
-            cerr << "(TILE_P=" << TILE_P << ")" << endl;
+            // cerr << "(TILE_P=" << TILE_P << ")" << endl;
             constexpr dim3 bd(TILE_X, TILE_Y, 1);
             const dim3 gd((product.n + bd.x - 1) / bd.x, (product.m + bd.y - 1) / bd.y, 1);
 
             double elapsed = 0;
-            for (int i = 0; i < 1; ++i)
+            for (int i = 0; i < 10; ++i)
             {
                 cudaEventRecord(eStart, stream);
                 mm_s<TILE_X, TILE_Y, TILE_P><<<gd, bd, 0, stream>>>(product.ca, product.a, product.b, product.m, product.n, product.p);
@@ -347,6 +357,7 @@ int main(void)
 
             check(product);
         }
+#endif
 
         destroy(product);
         cout << endl;
