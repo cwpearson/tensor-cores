@@ -241,6 +241,16 @@ int main(void)
             cout << "," << res.med() << flush;
         }
 #endif
+
+#if 0
+
+        {
+            TCHalfRRR bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+
         cout << endl;
         continue;
 

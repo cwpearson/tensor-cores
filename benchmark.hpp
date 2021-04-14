@@ -95,9 +95,36 @@ protected:
     // release allocations
     virtual void finalize(Product &product) = 0;
 
+    // return the time taken by a single matmul
+    virtual double mm(Product &product) = 0;
+
 public:
     virtual ~Benchmark() {}
 
     // run a benchmark
-    virtual Result run(const Spec &s) = 0;
+    virtual Result run(const Spec &spec)
+    {
+        Result ret;
+        ret.status = Result::Status::success;
+        Product prod = initialize(spec);
+
+        for (int i = 0; i < 10; ++i)
+        {
+            double sample = mm(prod);
+
+            if (0 == i)
+            {
+                if (!check(prod))
+                {
+                    ret.status = Result::Status::error;
+                    break;
+                }
+            }
+
+            ret.add_sample(sample);
+        }
+
+        finalize(prod);
+        return ret;
+    }
 };

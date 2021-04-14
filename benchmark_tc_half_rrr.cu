@@ -96,34 +96,6 @@ TCHalfRRR::~TCHalfRRR()
     CUDA_RUNTIME(cudaEventDestroy(stop_));
 }
 
-Result TCHalfRRR::run(const Spec &spec)
-{
-    Result ret;
-    ret.status = Result::Status::success;
-    Product prod = initialize(spec);
-
-    for (int i = 0; i < 10; ++i)
-    {
-        auto start = Clock::now();
-        mm(prod);
-        Duration elapsed = Clock::now() - start;
-
-        if (0 == i)
-        {
-            if (!check(prod))
-            {
-                ret.status = Result::Status::error;
-                break;
-            }
-        }
-
-        ret.add_sample(elapsed.count());
-    }
-
-    finalize(prod);
-    return ret;
-}
-
 bool TCHalfRRR::check(const Product &prod)
 {
     bool success = true;
@@ -136,10 +108,10 @@ bool TCHalfRRR::check(const Product &prod)
     CUDA_RUNTIME(cudaDeviceSynchronize());
 
     // compare with CPU
-    const float *_ce = (float *)prod.ce;
+    const float *_ca = (float *)prod.ca;
 
-#define ca(i, j) (temp[(i)*prod.n + (j)])
-#define ce(i, j) (_ce[(i)*prod.n + (j)])
+#define ca(i, j) (_ca[(i)*prod.n + (j)])
+#define ce(i, j) (temp[(i)*prod.n + (j)])
 
     for (int i = 0; i < prod.m; ++i)
     {
@@ -189,7 +161,7 @@ void TCHalfRRR::finalize(Product &prod)
     delete[](float *) prod.ce;
 }
 
-double TCHalfRRR::mm(const Product &prod)
+double TCHalfRRR::mm(Product &prod)
 {
     // 1 warp in x, 8 warps in y
     constexpr dim3 bd(32, 8, 1);
@@ -198,6 +170,7 @@ double TCHalfRRR::mm(const Product &prod)
     cudaEventRecord(start_, stream_);
     mm_tc<<<gd, bd, 0, stream_>>>((float *)prod.ca, (half *)prod.a, (half *)prod.b, prod.m, prod.n, prod.k);
     cudaEventRecord(stop_, stream_);
+    CUDA_RUNTIME(cudaGetLastError());
     CUDA_RUNTIME(cudaEventSynchronize(stop_));
     float millis;
     CUDA_RUNTIME(cudaEventElapsedTime(&millis, start_, stop_));
