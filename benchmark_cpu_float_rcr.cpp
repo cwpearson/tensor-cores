@@ -3,51 +3,42 @@
 #include "numeric.hpp"
 #include "time.hpp"
 
-Product CPURCR::initialize(const Spec &spec)
+void CPURCR::initialize(const Spec &spec)
 {
-    Product ret;
+    m_ = spec.m;
+    n_ = spec.n;
+    k_ = spec.k;
 
-    ret.m = spec.m;
-    ret.n = spec.n;
-    ret.k = spec.k;
-    ret.a = new float[ret.m * ret.k];
-    fill((float *)ret.a, ret.m * ret.k);
-    ret.b = new float[ret.k * ret.n];
-    fill((float *)ret.b, ret.k * ret.n);
-    ret.ce = new float[ret.m * ret.n];
-    ret.ca = new float[ret.m * ret.n];
-    return ret;
+    a_ = new float[m_ * k_];
+    fill(a_, m_ * k_);
+
+    b_ = new float[k_ * n_];
+    fill(b_, k_ * n_);
+
+    c_ = new float[m_ * n_];
 }
 
-void CPURCR::finalize(Product &prod)
+void CPURCR::finalize()
 {
-    delete[](float *) prod.a;
-    delete[](float *) prod.b;
-    delete[](float *) prod.ca;
-    delete[](float *) prod.ce;
+    delete[] a_;
+    delete[] b_;
+    delete[] c_;
 }
 
-double CPURCR::sample(Product &prod)
+double CPURCR::sample()
 {
 
-    float *_c = (float *)prod.ce;
-    float *_a = (float *)prod.a;
-    float *_b = (float *)prod.b;
-    const int M = prod.m;
-    const int N = prod.n;
-    const int K = prod.k;
-
-#define a(_i, _j) (_a[(_i)*K + (_j)]) // row major
-#define b(_i, _j) (_b[(_j)*K + (_i)]) // colum major
-#define c(_i, _j) (_c[(_i)*N + (_j)]) // row-major
+#define a(_i, _j) (a_[(_i)*k_ + (_j)]) // row major
+#define b(_i, _j) (b_[(_j)*k_ + (_i)]) // colum major
+#define c(_i, _j) (c_[(_i)*n_ + (_j)]) // row-major
 
     auto start = Clock::now();
-    for (int i = 0; i < M; ++i)
+    for (int i = 0; i < m_; ++i)
     {
-        for (int j = 0; j < N; ++j)
+        for (int j = 0; j < n_; ++j)
         {
             float acc = 0;
-            for (int k = 0; k < K; ++k)
+            for (int k = 0; k < k_; ++k)
             {
                 acc += a(i, k) * b(k, j);
             }

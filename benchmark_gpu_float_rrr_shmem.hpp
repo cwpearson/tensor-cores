@@ -4,11 +4,11 @@
 
 #include <cuda_fp16.h>
 
-class TCHalfRRR : public Benchmark
+class GPUFloatRRRShmem : public Benchmark
 {
 public:
-    TCHalfRRR();
-    ~TCHalfRRR() override;
+    GPUFloatRRRShmem();
+    ~GPUFloatRRRShmem() override;
 
 protected:
     cudaStream_t stream_;
@@ -17,13 +17,8 @@ protected:
 
     int m_, n_, k_;
 
-    __half *a_; // GPU
-    __half *b_; // GPU
-    float *ca_; // UM
-
-    // 32-bit for checking correctness
-    float *a32_; // UM
-    float *b32_; // UM
+    float *a_, *b_; // GPU
+    float *c_; // UM
 
     bool check() override;
     void initialize(const Spec &spec) override;

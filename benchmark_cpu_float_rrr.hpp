@@ -10,12 +10,15 @@ public:
     static void mm(float *c, const float *a, const float *b, const int M, const int N, const int K);
 
 protected:
-    bool check(const Product &product) override
+    bool check() override
     {
-        (void)product;
         return true;
     }
-    Product initialize(const Spec &spec) override;
-    void finalize(Product &product) override;
-    double sample(Product &prod) override;
+    void initialize(const Spec &spec) override;
+    void finalize() override;
+    double sample() override;
+
+private:
+    int m_, n_, k_;
+    float *a_, *b_, *c_;
 };

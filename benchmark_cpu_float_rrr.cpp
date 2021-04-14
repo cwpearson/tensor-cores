@@ -3,28 +3,26 @@
 #include "numeric.hpp"
 #include "time.hpp"
 
-Product CPURRR::initialize(const Spec &spec)
+void CPURRR::initialize(const Spec &spec)
 {
-    Product ret;
+    m_ = spec.m;
+    n_ = spec.n;
+    k_ = spec.k;
 
-    ret.m = spec.m;
-    ret.n = spec.n;
-    ret.k = spec.k;
-    ret.a = new float[ret.m * ret.k];
-    fill((float *)ret.a, ret.m * ret.k);
-    ret.b = new float[ret.k * ret.n];
-    fill((float *)ret.b, ret.k * ret.n);
-    ret.ce = new float[ret.m * ret.n];
-    ret.ca = new float[ret.m * ret.n];
-    return ret;
+    a_ = new float[m_ * k_];
+    fill(a_, m_ * k_);
+
+    b_ = new float[k_ * n_];
+    fill(b_, k_ * n_);
+
+    c_ = new float[m_ * n_];
 }
 
-void CPURRR::finalize(Product &prod)
+void CPURRR::finalize()
 {
-    delete[](float *) prod.a;
-    delete[](float *) prod.b;
-    delete[](float *) prod.ca;
-    delete[](float *) prod.ce;
+    delete[] a_;
+    delete[] b_;
+    delete[] c_;
 }
 
 void CPURRR::mm(float *_c, const float *_a, const float *_b, const int M, const int N, const int K) {
@@ -50,18 +48,10 @@ void CPURRR::mm(float *_c, const float *_a, const float *_b, const int M, const 
 #undef c
 }
 
-double CPURRR::sample(Product &prod)
+double CPURRR::sample()
 {
-
-    float *_c = (float *)prod.ce;
-    float *_a = (float *)prod.a;
-    float *_b = (float *)prod.b;
-    const int M = prod.m;
-    const int N = prod.n;
-    const int K = prod.k;
-
     auto start = Clock::now();
-    mm(_c, _a, _b, M, N, K);
+    mm(c_, a_, b_, m_, n_, k_);
     Duration elapsed = Clock::now() - start;
     return elapsed.count();
 

@@ -14,7 +14,7 @@ constexpr int WMMA_TILE_M = 16;
 constexpr int WMMA_TILE_N = 16;
 constexpr int WMMA_TILE_K = 16;
 
-__global__ void mm_tc(float *_c, const half *_a, const half *_b, const int M, const int N, const int K)
+static __global__ void mm_tc(float *_c, const half *_a, const half *_b, const int M, const int N, const int K)
 {
 #define a(_i, _j) (_a[(_i)*K + (_j)])
 #define b(_i, _j) (_b[(_i)*N + (_j)])
@@ -76,15 +76,7 @@ __global__ void mm_tc(float *_c, const half *_a, const half *_b, const int M, co
 #undef c
 }
 
-__global__ void half_to_float(float *f, const half *h, size_t n)
-{
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x)
-    {
-        f[i] = h[i];
-    }
-}
-
-__global__ void float_to_half(half *h, const float *f, size_t n)
+static __global__ void float_to_half(half *h, const float *f, size_t n)
 {
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x)
     {
@@ -106,10 +98,8 @@ TCHalfRRR::~TCHalfRRR()
     CUDA_RUNTIME(cudaEventDestroy(stop_));
 }
 
-bool TCHalfRRR::check(const Product &prod)
+bool TCHalfRRR::check()
 {
-    (void) prod;
-
     bool success = true;
 
     // compute expected
@@ -141,7 +131,7 @@ bool TCHalfRRR::check(const Product &prod)
     return success;
 }
 
-Product TCHalfRRR::initialize(const Spec &spec)
+void TCHalfRRR::initialize(const Spec &spec)
 {
     // pad out to next multiple of 16 in each dimension
     m_ = (spec.m + 15) / 16 * 16;
@@ -164,12 +154,10 @@ Product TCHalfRRR::initialize(const Spec &spec)
     // GPU output
     CUDA_RUNTIME(cudaMallocManaged(&ca_, sizeof(*ca_) * m_ * n_));
 
-    return Product();
 }
 
-void TCHalfRRR::finalize(Product &prod)
+void TCHalfRRR::finalize()
 {
-    (void) prod;
     CUDA_RUNTIME(cudaFree(a_));
     CUDA_RUNTIME(cudaFree(b_));
     CUDA_RUNTIME(cudaFree(ca_));
@@ -177,10 +165,8 @@ void TCHalfRRR::finalize(Product &prod)
     CUDA_RUNTIME(cudaFree(b32_));
 }
 
-double TCHalfRRR::sample(Product &prod)
+double TCHalfRRR::sample()
 {
-    (void) prod;
-
     // 1 warp in x, 8 warps in y
     constexpr dim3 bd(32, 8, 1);
     const dim3 gd((n_ + WMMA_TILE_N - 1) / WMMA_TILE_N, (m_ + WMMA_TILE_N * bd.y - 1) / (WMMA_TILE_N * bd.y), 1);

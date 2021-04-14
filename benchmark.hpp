@@ -31,30 +31,8 @@ struct Spec
         int m = std::pow(2, logm);
         int n = std::pow(2, logn);
         int k = std::pow(2, logk);
+        // return Spec(33,16,16);
         return Spec(m, n, k);
-    }
-};
-
-/* these are void since internally, the benchmark may use types not known to the C++ compiler (like half)
-*/
-struct Product
-{
-    void *a;
-    void *b;
-    void *ce; // expected
-    void *ca; // actual
-    int m;
-    int n;
-    int k;
-
-    Product() : a(nullptr), b(nullptr), ce(nullptr), ca(nullptr), m(0), n(0), k(0)
-    {
-    }
-
-    // real flops in the multiplication
-    size_t flop() const
-    {
-        return size_t(m) * size_t(n) * size_t(k) * 2;
     }
 };
 
@@ -87,16 +65,17 @@ struct Result
 class Benchmark
 {
 protected:
-    // check a product for correctness
-    virtual bool check(const Product &product) = 0;
+    // check the result for correctness (called on first sample)
+    virtual bool check() = 0;
 
     // create needed allocations
-    virtual Product initialize(const Spec &spec) = 0;
+    virtual void initialize(const Spec &spec) = 0;
+
     // release allocations
-    virtual void finalize(Product &product) = 0;
+    virtual void finalize() = 0;
 
     // return the time taken by a single matmul
-    virtual double sample(Product &product) = 0;
+    virtual double sample() = 0;
 
 public:
     virtual ~Benchmark() {}
@@ -106,15 +85,15 @@ public:
     {
         Result ret;
         ret.status = Result::Status::success;
-        Product prod = initialize(spec);
+        initialize(spec);
 
-        for (int i = 0; i < 10; ++i)
+        for (int i = 0; i < 20; ++i)
         {
-            double secs = sample(prod);
+            double secs = sample();
 
             if (0 == i)
             {
-                if (!check(prod))
+                if (!check())
                 {
                     ret.status = Result::Status::error;
                     throw std::logic_error("correctness failed");
@@ -124,7 +103,7 @@ public:
             ret.add_sample(secs);
         }
 
-        finalize(prod);
+        finalize();
         return ret;
     }
 };

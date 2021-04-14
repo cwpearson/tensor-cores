@@ -4,11 +4,11 @@
 
 #include <cuda_fp16.h>
 
-class TCHalfRRR : public Benchmark
+class TCHalfRRRShmem : public Benchmark
 {
 public:
-    TCHalfRRR();
-    ~TCHalfRRR() override;
+    TCHalfRRRShmem();
+    ~TCHalfRRRShmem() override;
 
 protected:
     cudaStream_t stream_;

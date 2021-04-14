@@ -29,6 +29,9 @@ main.cu
 numeric.cpp
 benchmark_cpu_float_rcr.cpp
 benchmark_cpu_float_rrr.cpp
+benchmark_gpu_float_rrr_shmem.cu
+benchmark_gpu_float_rrr.cu
+benchmark_tc_half_rrr_shmem.cu
 benchmark_tc_half_rrr.cu
 )
 
