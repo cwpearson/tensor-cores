@@ -2,8 +2,12 @@
 
 #include "benchmark.hpp"
 
-class CPURCR : public Benchmark
+class CPURRR : public Benchmark
 {
+
+public:
+    // public so other benchmarks can use it to check correctness
+    static void mm(float *c, const float *a, const float *b, const int M, const int N, const int K);
 
 protected:
     bool check(const Product &product) override

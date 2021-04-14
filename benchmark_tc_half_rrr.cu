@@ -1,9 +1,11 @@
 #include "benchmark_tc_half_rrr.hpp"
 
+#include "benchmark_cpu_float_rrr.hpp"
 #include "numeric.hpp"
 #include "time.hpp"
 #include "cuda_runtime.hpp"
 
+#include <curand.h>
 #include <mma.h>
 
 #include <iostream>
@@ -82,6 +84,14 @@ __global__ void half_to_float(float *f, const half *h, size_t n)
     }
 }
 
+__global__ void float_to_half(half *h, const float *f, size_t n)
+{
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x)
+    {
+        h[i] = f[i];
+    }
+}
+
 TCHalfRRR::TCHalfRRR()
 {
     CUDA_RUNTIME(cudaStreamCreate(&stream_));
@@ -98,26 +108,22 @@ TCHalfRRR::~TCHalfRRR()
 
 bool TCHalfRRR::check(const Product &prod)
 {
+    (void) prod;
+
     bool success = true;
-    return success;
 
-    // convert ca to float
-    float *temp{};
-    CUDA_RUNTIME(cudaMallocManaged(&temp, sizeof(float) * prod.m * prod.n));
-    half_to_float<<<256, 512>>>(temp, (half *)prod.ca, prod.m * prod.n);
-    CUDA_RUNTIME(cudaDeviceSynchronize());
+    // compute expected
+    std::vector<float> _ce(m_ * n_);
+    CPURRR::mm(_ce.data(), a32_, b32_, m_, n_, k_);
 
-    // compare with CPU
-    const float *_ca = (float *)prod.ca;
+#define ca(i, j) (ca_[(i)*n_ + (j)])
+#define ce(i, j) (_ce[(i)*n_ + (j)])
 
-#define ca(i, j) (_ca[(i)*prod.n + (j)])
-#define ce(i, j) (temp[(i)*prod.n + (j)])
-
-    for (int i = 0; i < prod.m; ++i)
+    for (int i = 0; i < m_; ++i)
     {
-        for (int j = 0; j < prod.n; ++j)
+        for (int j = 0; j < n_; ++j)
         {
-            if (!almost_equal(ca(i, j), ce(i, j), 1e-5))
+            if (!almost_equal(ca(i, j), ce(i, j), 1e-2))
             {
                 std::cerr << "ERR at " << i << " " << j << " "
                           << "ce=" << ce(i, j) << " ca=" << ca(i, j) << std::endl;
@@ -129,50 +135,62 @@ bool TCHalfRRR::check(const Product &prod)
 #undef ca
 #undef ce
 
-    CUDA_RUNTIME(cudaFree(temp));
-    temp = nullptr;
+    // send ca back to GPU
+    CUDA_RUNTIME(cudaMemPrefetchAsync(ca_, sizeof(*ca_) *m_ *n_, 0, 0));
+    CUDA_RUNTIME(cudaDeviceSynchronize());
     return success;
 }
 
 Product TCHalfRRR::initialize(const Spec &spec)
 {
-    Product ret;
-
     // pad out to next multiple of 16 in each dimension
-    ret.m = (spec.m + 15) / 16 * 16;
-    ret.n = (spec.n + 15) / 16 * 16;
-    ret.k = (spec.k + 15) / 16 * 16;
+    m_ = (spec.m + 15) / 16 * 16;
+    n_ = (spec.n + 15) / 16 * 16;
+    k_ = (spec.k + 15) / 16 * 16;
 
-    // half precision inputs
-    CUDA_RUNTIME(cudaMalloc(&ret.a, sizeof(half) * ret.m * ret.k));
-    CUDA_RUNTIME(cudaMalloc(&ret.b, sizeof(half) * ret.k * ret.n));
-    CUDA_RUNTIME(cudaMalloc(&ret.ca, sizeof(half) * ret.m * ret.n));
+    // generate random numbers on CPU
+    CUDA_RUNTIME(cudaMallocManaged(&a32_, sizeof(*a32_) * m_ * k_));
+    CUDA_RUNTIME(cudaMallocManaged(&b32_, sizeof(*b32_) * k_ * n_));
+    fill(a32_, m_ * k_);
+    fill(b32_, k_ * n_);
 
-    // compute expected on CPU with float precision
-    ret.ce = new float[ret.m * ret.n];
-    return ret;
+    // convert to half-precision GPU inputs
+    CUDA_RUNTIME(cudaMalloc(&a_, sizeof(*a_) * m_ * k_));
+    CUDA_RUNTIME(cudaMalloc(&b_, sizeof(*b_) * k_ * n_));
+    float_to_half<<<256,256>>>(a_, a32_, m_ * k_);
+    float_to_half<<<256,256>>>(b_, b32_, k_ * n_);
+    CUDA_RUNTIME(cudaDeviceSynchronize());
+
+    // GPU output
+    CUDA_RUNTIME(cudaMallocManaged(&ca_, sizeof(*ca_) * m_ * n_));
+
+    return Product();
 }
 
 void TCHalfRRR::finalize(Product &prod)
 {
-    CUDA_RUNTIME(cudaFree((half *)prod.a));
-    CUDA_RUNTIME(cudaFree((half *)prod.b));
-    CUDA_RUNTIME(cudaFree((float *)prod.ca));
-    delete[](float *) prod.ce;
+    (void) prod;
+    CUDA_RUNTIME(cudaFree(a_));
+    CUDA_RUNTIME(cudaFree(b_));
+    CUDA_RUNTIME(cudaFree(ca_));
+    CUDA_RUNTIME(cudaFree(a32_));
+    CUDA_RUNTIME(cudaFree(b32_));
 }
 
-double TCHalfRRR::mm(Product &prod)
+double TCHalfRRR::sample(Product &prod)
 {
+    (void) prod;
+
     // 1 warp in x, 8 warps in y
     constexpr dim3 bd(32, 8, 1);
-    const dim3 gd((prod.n + WMMA_TILE_N - 1) / WMMA_TILE_N, (prod.m + WMMA_TILE_N * bd.y - 1) / (WMMA_TILE_N * bd.y), 1);
+    const dim3 gd((n_ + WMMA_TILE_N - 1) / WMMA_TILE_N, (m_ + WMMA_TILE_N * bd.y - 1) / (WMMA_TILE_N * bd.y), 1);
 
     cudaEventRecord(start_, stream_);
-    mm_tc<<<gd, bd, 0, stream_>>>((float *)prod.ca, (half *)prod.a, (half *)prod.b, prod.m, prod.n, prod.k);
-    cudaEventRecord(stop_, stream_);
+    mm_tc<<<gd, bd, 0, stream_>>>(ca_, a_, b_, m_, n_, k_);
+    CUDA_RUNTIME(cudaEventRecord(stop_, stream_));
     CUDA_RUNTIME(cudaGetLastError());
     CUDA_RUNTIME(cudaEventSynchronize(stop_));
     float millis;
     CUDA_RUNTIME(cudaEventElapsedTime(&millis, start_, stop_));
-    return millis;
+    return millis/1e3;
 }

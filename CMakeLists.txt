@@ -28,6 +28,7 @@ add_executable(tc
 main.cu 
 numeric.cpp
 benchmark_cpu_float_rcr.cpp
+benchmark_cpu_float_rrr.cpp
 benchmark_tc_half_rrr.cu
 )
 

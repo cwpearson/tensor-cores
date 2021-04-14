@@ -2,9 +2,9 @@
 
 #include <cstdlib>
 
-void fill(float *a, const int m, const int n)
+void fill(float *a, const size_t n)
 {
-    for (int i = 0; i < m * n; ++i)
+    for (int i = 0; i < n; ++i)
     {
         a[i] = static_cast<float>(rand()) / RAND_MAX;
     }

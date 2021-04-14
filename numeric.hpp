@@ -3,7 +3,7 @@
 #include <limits>
 #include <cmath>
 
-void fill(float *a, const int m, const int n);
+void fill(float *a, const size_t n);
 
 
 

@@ -2,12 +2,17 @@
 #include <cstdlib>
 #include <cmath>
 
+
+
 #include "cuda_runtime.hpp"
 #include "benchmark.hpp"
 #include "benchmark_cpu_float_rcr.hpp"
+#include "benchmark_cpu_float_rrr.hpp"
 #include "benchmark_tc_half_rrr.hpp"
 #include "numeric.hpp"
 #include "time.hpp"
+
+
 
 using std::cerr;
 using std::cout;
@@ -26,9 +31,9 @@ Product create(const Spec &s)
     ret.n = s.n;
     ret.k = s.k;
     cudaMallocManaged(&ret.a, sizeof(float) * s.m * s.k);
-    fill((float*)ret.a, s.m, s.k);
+    fill((float*)ret.a, s.m * s.k);
     cudaMallocManaged(&ret.b, sizeof(float) * s.k * s.n);
-    fill((float*)ret.b, s.k, s.n);
+    fill((float*)ret.b, s.k * s.n);
     cudaMallocManaged(&ret.ce, sizeof(float) * s.m * s.n);
     cudaMallocManaged(&ret.ca, sizeof(float) * s.m * s.n);
     return ret;
@@ -242,8 +247,16 @@ int main(void)
         }
 #endif
 
-#if 0
+#if 1
 
+        {
+            CPURRR bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+
+#if 1
         {
             TCHalfRRR bench;
             Result res = bench.run(spec);

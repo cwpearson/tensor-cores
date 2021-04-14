@@ -96,7 +96,7 @@ protected:
     virtual void finalize(Product &product) = 0;
 
     // return the time taken by a single matmul
-    virtual double mm(Product &product) = 0;
+    virtual double sample(Product &product) = 0;
 
 public:
     virtual ~Benchmark() {}
@@ -110,18 +110,18 @@ public:
 
         for (int i = 0; i < 10; ++i)
         {
-            double sample = mm(prod);
+            double secs = sample(prod);
 
             if (0 == i)
             {
                 if (!check(prod))
                 {
                     ret.status = Result::Status::error;
-                    break;
+                    throw std::logic_error("correctness failed");
                 }
             }
 
-            ret.add_sample(sample);
+            ret.add_sample(secs);
         }
 
         finalize(prod);
