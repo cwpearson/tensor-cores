@@ -1,87 +1,37 @@
 #include <iostream>
-#include <chrono>
-#include <cstdio>
 #include <cstdlib>
 #include <cmath>
-#include <numeric>
 
-#include <cuda_runtime.h>
-#include <mma.h>
-
-inline void checkCuda(cudaError_t result, const char *file, const int line)
-{
-    if (result != cudaSuccess)
-    {
-        fprintf(stderr, "%s:%d: CUDA Runtime Error %d: %s\n", file, line, int(result), cudaGetErrorString(result));
-        exit(-1);
-    }
-}
-#define CUDA_RUNTIME(stmt) checkCuda(stmt, __FILE__, __LINE__);
+#include "cuda_runtime.hpp"
+#include "benchmark.hpp"
+#include "benchmark_cpu_float_rcr.hpp"
+#include "benchmark_tc_half_rrr.hpp"
+#include "numeric.hpp"
+#include "time.hpp"
 
 using std::cerr;
 using std::cout;
 using std::endl;
 using std::flush;
 
-void fill(float *a, const int m, const int n)
-{
-    for (int i = 0; i < m * n; ++i)
-    {
-        a[i] = static_cast<float>(rand()) / RAND_MAX;
-    }
-}
-
-struct Product
-{
-    float *a;
-    float *b;
-    float *ce; // expected
-    float *ca; // actual
-    int m;
-    int n;
-    int p;
-
-    size_t flop() const
-    {
-        return size_t(m) * size_t(n) * size_t(p) * 2;
-    }
-};
-
 /* a*b=c
    a[m x p]
    b[p x n]
    c[m x n]
 */
-Product create(const int m, const int n, const int p)
+Product create(const Spec &s)
 {
     Product ret;
-    ret.m = m;
-    ret.n = n;
-    ret.p = p;
-    cudaMallocManaged(&ret.a, sizeof(float) * m * p);
-    fill(ret.a, m, p);
-    cudaMallocManaged(&ret.b, sizeof(float) * p * n);
-    fill(ret.b, p, n);
-    cudaMallocManaged(&ret.ce, sizeof(float) * m * n);
-    cudaMallocManaged(&ret.ca, sizeof(float) * m * n);
+    ret.m = s.m;
+    ret.n = s.n;
+    ret.k = s.k;
+    cudaMallocManaged(&ret.a, sizeof(float) * s.m * s.k);
+    fill((float*)ret.a, s.m, s.k);
+    cudaMallocManaged(&ret.b, sizeof(float) * s.k * s.n);
+    fill((float*)ret.b, s.k, s.n);
+    cudaMallocManaged(&ret.ce, sizeof(float) * s.m * s.n);
+    cudaMallocManaged(&ret.ca, sizeof(float) * s.m * s.n);
     return ret;
-}
-
-Product create(const int lo, const int hi)
-{
-
-    float logm = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
-    float logn = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
-    float logp = (float(rand()) / RAND_MAX) * (hi-lo) + lo;
-
-    int m = std::pow(2, logm);
-    int n = std::pow(2, logn);
-    int p = std::pow(2, logp);
-
-    // m = 35;
-    // n = 12;
-    // p = 734;
-    return create(m, n, p);
 }
 
 void destroy(Product &prod)
@@ -92,7 +42,7 @@ void destroy(Product &prod)
     CUDA_RUNTIME(cudaFree(prod.ca));
     prod.m = 0;
     prod.n = 0;
-    prod.p = 0;
+    prod.k = 0;
 }
 
 /* a*b=c
@@ -156,84 +106,6 @@ __global__ void mm(float *_c, const float *_a, const float *_b, const int m, con
 #undef b
 #undef c
 }
-
-/* a*b=c
-   a[m x p]
-   b[p x n]
-   c[m x n]
-
-   all row-major
-
-   one tile per warp
-*/
-__global__ void mm_tc(half *_c, const half *_a, const half *_b, const int m, const int n, const int p)
-{
-#define a(_i, _j) (_a[(_i)*p + (_j)])
-#define b(_i, _j) (_b[(_i)*n + (_j)])
-#define c(_i, _j) (_c[(_i)*n + (_j)])
-
-    constexpr int WMMA_TILE_M = 16;
-    constexpr int WMMA_TILE_N = 16;
-    constexpr int WMMA_TILE_P = 16;
-
-    using nvcuda::wmma::matrix_a;
-    using nvcuda::wmma::matrix_b;
-    using nvcuda::wmma::accumulator;
-    using nvcuda::wmma::fragment;
-    using nvcuda::wmma::col_major; // a type
-    using nvcuda::wmma::row_major; // a type
-    using nvcuda::wmma::mem_row_major; // a layout_t
-    using nvcuda::wmma::fill_fragment;
-    using nvcuda::wmma::load_matrix_sync;
-    using nvcuda::wmma::store_matrix_sync;
-    using nvcuda::wmma::mma_sync;
-
-    typedef fragment<matrix_a, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, half, row_major> FragA;
-    typedef fragment<matrix_b, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, half, row_major> FragB;
-    typedef fragment<accumulator, WMMA_TILE_M, WMMA_TILE_N, WMMA_TILE_P, float> FragC;
-
-    FragA fa;
-    FragB fb;
-    FragC fc;
-
-    fill_fragment(fc, 0.0f);
-
-    const int wx = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
-    const int wy = blockIdx.y * blockDim.y + threadIdx.y;
-
-    for (int t = 0; t < p; t += WMMA_TILE_P)
-    {
-        // row and col of beginning of tile
-        int aRow = wy * WMMA_TILE_M;
-        int aCol = t;
-        const int bRow = t;
-        const int bCol = wx * WMMA_TILE_N;
-
-
-        // TODO -- tile may go outside of the matrix
-        if (aRow < m && aCol < p && bRow < p && bCol < n) {
-
-            // cast to half for now
-            load_matrix_sync(fa, (half*)&a(aRow, aCol), unsigned(p));
-            load_matrix_sync(fb, (half*)&b(bRow, bCol), unsigned(n));
-            mma_sync(fc, fa, fb, fc);
-        }
-
-    }
-
-    int cRow = wy * WMMA_TILE_M;
-    int cCol = wx * WMMA_TILE_N;
-
-    if (cRow < m && cCol < n) {
-        store_matrix_sync(&c(cRow, cCol), fc, n, mem_row_major);
-    }
-
-
-#undef a
-#undef b
-#undef c
-}
-
 
 /* a*b=c
    a[m x p]
@@ -318,29 +190,14 @@ __global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, c
 #undef c
 }
 
-bool almost_equal(float a, float b,
-                  float maxRelativeDiff = std::numeric_limits<float>::epsilon())
-{
-    if (std::isnan(a) || std::isnan(b))
-    {
-        return false;
-    }
-
-    const float difference = fabs(a - b);
-
-    // Scale to the largest value.
-    a = fabs(a);
-    b = fabs(b);
-    const float scaledEpsilon =
-        maxRelativeDiff * max(a, b);
-
-    return difference <= scaledEpsilon;
-}
-
 void check(const Product &product)
 {
-#define ca(i, j) product.ca[i * product.n + j]
-#define ce(i, j) product.ce[i * product.n + j]
+
+    float *_ca = (float*)product.ca;
+    float *_ce = (float*)product.ca;
+
+#define ca(i, j) (_ca[(i) * product.n + (j)])
+#define ce(i, j) (_ce[(i) * product.n + (j)])
 
     for (int i = 0; i < product.m; ++i)
     {
@@ -360,9 +217,6 @@ void check(const Product &product)
 
 int main(void)
 {
-    typedef std::chrono::system_clock Clock;
-    typedef std::chrono::duration<double> Duration;
-    typedef std::chrono::time_point<Clock, Duration> Time;
 
     cudaStream_t stream;
     CUDA_RUNTIME(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
@@ -374,17 +228,29 @@ int main(void)
 
     for (int ti = 0; ti < 1000; ++ti)
     {
-        // while(true) {
 
-        Product product = create(2, 10);
+        Spec spec = Spec::create_log_uniform(2, 10);
 
-        cout << product.m << "," << product.n << "," << product.p << "," << product.flop() << flush;
+        cout << spec.m << "," << spec.n << "," << spec.k << "," << spec.flop() << flush;
+
+#if 1
+
+        {
+            CPURCR bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+        cout << endl;
+        continue;
+
+        Product product = create(spec);
 
         {
             auto start = Clock::now();
             for (int i = 0; i < 10; ++i)
             {
-                cpu(product.ce, product.a, product.b, product.m, product.n, product.p);
+                cpu((float*)product.ce, (float*)product.a, (float*)product.b, product.m, product.n, product.k);
             }
             Duration elapsed = Clock::now() - start;
             cout << "," << elapsed.count() / 10 << flush;
@@ -398,7 +264,7 @@ int main(void)
             for (int i = 0; i < 10; ++i)
             {
                 cudaEventRecord(eStart, stream);
-                mm<<<gd, bd, 0, stream>>>(product.ca, product.a, product.b, product.m, product.n, product.p);
+                mm<<<gd, bd, 0, stream>>>((float*)product.ca, (float*)product.a, (float*)product.b, product.m, product.n, product.k);
                 cudaEventRecord(eStop, stream);
                 CUDA_RUNTIME(cudaEventSynchronize(eStop));
                 float millis;
@@ -424,7 +290,7 @@ int main(void)
             for (int i = 0; i < 10; ++i)
             {
                 cudaEventRecord(eStart, stream);
-                mm_s<TILE_X, TILE_Y, TILE_P><<<gd, bd, 0, stream>>>(product.ca, product.a, product.b, product.m, product.n, product.p);
+                mm_s<TILE_X, TILE_Y, TILE_P><<<gd, bd, 0, stream>>>((float*)product.ca, (float*)product.a, (float*)product.b, product.m, product.n, product.k);
                 cudaEventRecord(eStop, stream);
                 CUDA_RUNTIME(cudaEventSynchronize(eStop));
                 float millis;

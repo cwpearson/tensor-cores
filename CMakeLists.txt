@@ -9,6 +9,7 @@ message(STATUS "CMAKE_CUDA_ARCHITECTURES not defined, setting to OFF")
 set(CMAKE_CUDA_ARCHITECTURES OFF CACHE STRING "")
 endif()
 
+
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Set a default build type if none was specified
@@ -23,7 +24,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 message(STATUS "Build type: " ${CMAKE_BUILD_TYPE})
 
-add_executable(tc main.cu)
+add_executable(tc 
+main.cu 
+numeric.cpp
+benchmark_cpu_float_rcr.cpp
+benchmark_tc_half_rrr.cu
+)
 
 set_property(TARGET tc PROPERTY CXX_STANDARD 11)
 set_property(TARGET tc PROPERTY CXX_EXTENSIONS OFF)
