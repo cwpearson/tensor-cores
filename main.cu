@@ -5,6 +5,7 @@
 #include "benchmark.hpp"
 #include "benchmark_cpu_float_rcr.hpp"
 #include "benchmark_cpu_float_rrr.hpp"
+#include "benchmark_cublas.hpp"
 #include "benchmark_gpu_float_rrr_shmem.hpp"
 #include "benchmark_gpu_float_rrr.hpp"
 #include "benchmark_tc_half_rrr_shmem.hpp"
@@ -23,7 +24,7 @@ int main(void)
 {
     srand(100);
 
-    cout << "M,N,K,FLOP,CPU RRR,CPU RCR, GPU Global, GPU Shmem, GPU TC, GPU TC/Shmem\n";
+    cout << "M,N,K,FLOP,RRR CPU,RCR CPU, RRR GPU Global, RRR GPU Shmem, RRR GPU TC, RRR GPU TC/Shmem, RRC Cublas\n";
 
     for (int ti = 0; ti < 1000; ++ti)
     {
@@ -77,6 +78,14 @@ int main(void)
 #if 1
         {
             TCHalfRRRShmem bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+
+#if 1
+        {
+            Cublas bench;
             Result res = bench.run(spec);
             cout << "," << res.med() << flush;
         }

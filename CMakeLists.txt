@@ -29,11 +29,14 @@ main.cu
 numeric.cpp
 benchmark_cpu_float_rcr.cpp
 benchmark_cpu_float_rrr.cpp
+benchmark_cublas.cu
 benchmark_gpu_float_rrr_shmem.cu
 benchmark_gpu_float_rrr.cu
 benchmark_tc_half_rrr_shmem.cu
 benchmark_tc_half_rrr.cu
 )
+
+target_link_libraries(tc cublas)
 
 set_property(TARGET tc PROPERTY CXX_STANDARD 11)
 set_property(TARGET tc PROPERTY CXX_EXTENSIONS OFF)
