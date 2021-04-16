@@ -5,11 +5,13 @@
 #include "benchmark.hpp"
 #include "benchmark_cpu_float_rcr.hpp"
 #include "benchmark_cpu_float_rrr.hpp"
-#include "benchmark_cublas.hpp"
+#include "benchmark_rrc_cublas_gemmex.hpp"
+#include "benchmark_rrc_tc_half.hpp"
 #include "benchmark_gpu_float_rrr_shmem.hpp"
 #include "benchmark_gpu_float_rrr.hpp"
 #include "benchmark_tc_half_rrr_shmem.hpp"
 #include "benchmark_tc_half_rrr.hpp"
+#include "benchmark_rcr_cpu_tiled_float.hpp"
 #include "numeric.hpp"
 #include "time.hpp"
 
@@ -24,7 +26,7 @@ int main(void)
 {
     srand(100);
 
-    cout << "M,N,K,FLOP,RRR CPU,RCR CPU, RRR GPU Global, RRR GPU Shmem, RRR GPU TC, RRR GPU TC/Shmem, RRC Cublas\n";
+    cout << "M,N,K,FLOP,RRR CPU,RCR CPU,RCR CPU tiled float,RRR GPU Global,RRR GPU Shmem,RRR GPU TC,RRC TC half,RRR GPU TC/Shmem, RRC cuBLAS GemmEX\n";
 
     for (int ti = 0; ti < 1000; ++ti)
     {
@@ -46,6 +48,15 @@ int main(void)
 
         {
             CPURCR bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+
+#if 1
+
+        {
+            RCR_CPU_tiled_float bench;
             Result res = bench.run(spec);
             cout << "," << res.med() << flush;
         }
@@ -77,6 +88,14 @@ int main(void)
 
 #if 1
         {
+            RRC_TC_half bench;
+            Result res = bench.run(spec);
+            cout << "," << res.med() << flush;
+        }
+#endif
+
+#if 1
+        {
             TCHalfRRRShmem bench;
             Result res = bench.run(spec);
             cout << "," << res.med() << flush;
@@ -85,7 +104,7 @@ int main(void)
 
 #if 1
         {
-            Cublas bench;
+            RRC_cuBLAS_GemmEx bench;
             Result res = bench.run(spec);
             cout << "," << res.med() << flush;
         }

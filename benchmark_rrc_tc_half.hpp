@@ -3,19 +3,17 @@
 #include "benchmark.hpp"
 
 #include <cuda_fp16.h>
-#include <cublas_v2.h>
 
-class Cublas : public Benchmark
+class RRC_TC_half : public Benchmark
 {
 public:
-    Cublas();
-    ~Cublas() override;
+    RRC_TC_half();
+    ~RRC_TC_half() override;
 
 protected:
     cudaStream_t stream_;
     cudaEvent_t start_;
     cudaEvent_t stop_;
-    cublasHandle_t handle_;
 
     int m_, n_, k_;
 

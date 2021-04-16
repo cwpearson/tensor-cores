@@ -29,11 +29,13 @@ main.cu
 numeric.cpp
 benchmark_cpu_float_rcr.cpp
 benchmark_cpu_float_rrr.cpp
-benchmark_cublas.cu
+benchmark_rrc_cublas_gemmex.cu
 benchmark_gpu_float_rrr_shmem.cu
 benchmark_gpu_float_rrr.cu
 benchmark_tc_half_rrr_shmem.cu
 benchmark_tc_half_rrr.cu
+benchmark_rcr_cpu_tiled_float.cpp
+benchmark_rrc_tc_half.cu
 )
 
 target_link_libraries(tc cublas)

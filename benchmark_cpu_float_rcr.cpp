@@ -25,30 +25,34 @@ void CPURCR::finalize()
     delete[] c_;
 }
 
-double CPURCR::sample()
-{
+void CPURCR::mm(float *_c, const float *_a, const float *_b, const int M, const int N, const int K) {
+#define a(_i, _j) (_a[(_i)*K + (_j)]) // row major
+#define b(_i, _j) (_b[(_j)*K + (_i)]) // colum major
+#define c(_i, _j) (_c[(_i)*N + (_j)]) // row-major
 
-#define a(_i, _j) (a_[(_i)*k_ + (_j)]) // row major
-#define b(_i, _j) (b_[(_j)*k_ + (_i)]) // colum major
-#define c(_i, _j) (c_[(_i)*n_ + (_j)]) // row-major
-
-    auto start = Clock::now();
-    for (int i = 0; i < m_; ++i)
+    for (int i = 0; i < M; ++i)
     {
-        for (int j = 0; j < n_; ++j)
+        for (int j = 0; j < N; ++j)
         {
             float acc = 0;
-            for (int k = 0; k < k_; ++k)
+            for (int k = 0; k < K; ++k)
             {
                 acc += a(i, k) * b(k, j);
             }
             c(i, j) = acc;
         }
     }
-    Duration elapsed = Clock::now() - start;
-    return elapsed.count();
-
+    
 #undef a
 #undef b
 #undef c
+}
+
+
+double CPURCR::sample()
+{
+    auto start = Clock::now();
+    mm(c_, a_, b_, m_, n_, k_);
+    Duration elapsed = Clock::now() - start;
+    return elapsed.count();
 }

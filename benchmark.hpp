@@ -87,7 +87,7 @@ public:
         ret.status = Result::Status::success;
         initialize(spec);
 
-        for (int i = 0; i < 20; ++i)
+        for (int i = 0; i < 30; ++i)
         {
             double secs = sample();
 

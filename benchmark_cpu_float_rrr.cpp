@@ -54,5 +54,4 @@ double CPURRR::sample()
     mm(c_, a_, b_, m_, n_, k_);
     Duration elapsed = Clock::now() - start;
     return elapsed.count();
-
 }

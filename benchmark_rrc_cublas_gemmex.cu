@@ -1,4 +1,4 @@
-#include "benchmark_cublas.hpp"
+#include "benchmark_rrc_cublas_gemmex.hpp"
 
 #include "benchmark_cpu_float_rrr.hpp"
 #include "numeric.hpp"
@@ -17,7 +17,7 @@ static __global__ void float_to_half(half *h, const float *f, size_t n)
     }
 }
 
-Cublas::Cublas()
+RRC_cuBLAS_GemmEx::RRC_cuBLAS_GemmEx()
 {
 
     CUBLAS(cublasCreate(&handle_));
@@ -27,7 +27,7 @@ Cublas::Cublas()
     CUBLAS(cublasSetStream(handle_, stream_));
 }
 
-Cublas::~Cublas()
+RRC_cuBLAS_GemmEx::~RRC_cuBLAS_GemmEx()
 {
     CUDA_RUNTIME(cudaStreamDestroy(stream_));
     CUDA_RUNTIME(cudaEventDestroy(start_));
@@ -35,7 +35,7 @@ Cublas::~Cublas()
     CUBLAS(cublasDestroy(handle_));
 }
 
-bool Cublas::check()
+bool RRC_cuBLAS_GemmEx::check()
 {
     bool success = true;
 
@@ -69,7 +69,7 @@ bool Cublas::check()
     return success;
 }
 
-void Cublas::initialize(const Spec &spec)
+void RRC_cuBLAS_GemmEx::initialize(const Spec &spec)
 {
     // pad out to next multiple of 16 in each dimension
     m_ = (spec.m + 15) / 16 * 16;
@@ -97,7 +97,7 @@ void Cublas::initialize(const Spec &spec)
 
 }
 
-void Cublas::finalize()
+void RRC_cuBLAS_GemmEx::finalize()
 {
     CUDA_RUNTIME(cudaFree(a_));
     CUDA_RUNTIME(cudaFree(b_));
@@ -106,7 +106,7 @@ void Cublas::finalize()
     CUDA_RUNTIME(cudaFree(b32_));
 }
 
-double Cublas::sample()
+double RRC_cuBLAS_GemmEx::sample()
 {
 
     float alpha = 1.0f;
