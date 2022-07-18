@@ -14,7 +14,7 @@ constexpr int WMMA_TILE_M = 16;
 constexpr int WMMA_TILE_N = 16;
 constexpr int WMMA_TILE_K = 16;
 
-static __global__ void mm(float *_c, const half *_a, const half *_b, const int M, const int N, const int K)
+static __global__ void mm(float * __restrict__ _c, const half * __restrict__ _a, const half * __restrict__ _b, const int M, const int N, const int K)
 {
 #define a(_i, _j) (_a[(_i)*K + (_j)])
 #define b(_i, _j) (_b[(_i)*N + (_j)])

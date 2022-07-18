@@ -17,7 +17,7 @@
 
    all row-major
 */
-__global__ void mm(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+__global__ void mm(float * __restrict__ _c, const float * __restrict__ _a, const float * __restrict__ _b, const int m, const int n, const int p)
 {
 #define a(_i, _j) _a[(_i)*p + (_j)]
 #define b(_i, _j) _b[(_i)*n + (_j)]
@@ -107,6 +107,8 @@ void GPUFloatRRR::initialize(const Spec &spec)
 
     // GPU output
     CUDA_RUNTIME(cudaMallocManaged(&c_, sizeof(*c_) * m_ * n_));
+
+    CUDA_RUNTIME(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
 }
 
 void GPUFloatRRR::finalize()
@@ -114,6 +116,7 @@ void GPUFloatRRR::finalize()
     CUDA_RUNTIME(cudaFree(a_));
     CUDA_RUNTIME(cudaFree(b_));
     CUDA_RUNTIME(cudaFree(c_));
+    CUDA_RUNTIME(cudaDeviceSetCacheConfig(cudaFuncCachePreferEqual));
 }
 
 double GPUFloatRRR::sample()

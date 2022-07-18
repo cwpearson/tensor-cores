@@ -31,4 +31,6 @@ protected:
     void initialize(const Spec &spec) override;
     void finalize() override;
     double sample() override;
+
+    std::string name() override {return "RRC GPU cuBLAS GemmEx";}
 };

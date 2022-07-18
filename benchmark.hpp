@@ -77,6 +77,9 @@ protected:
     // return the time taken by a single matmul
     virtual double sample() = 0;
 
+    // name of the benchmark
+    virtual std::string name() = 0;
+
 public:
     virtual ~Benchmark() {}
 

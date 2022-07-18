@@ -17,6 +17,7 @@ protected:
     void initialize(const Spec &spec) override;
     void finalize() override;
     double sample() override;
+    std::string name() override {return "RRR CPU";}
 
 private:
     int m_, n_, k_;

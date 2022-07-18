@@ -25,7 +25,7 @@ void CPURCR::finalize()
     delete[] c_;
 }
 
-void CPURCR::mm(float *_c, const float *_a, const float *_b, const int M, const int N, const int K) {
+void CPURCR::mm(float * __restrict__ _c, const float * __restrict__ _a, const float * __restrict__ _b, const int M, const int N, const int K) {
 #define a(_i, _j) (_a[(_i)*K + (_j)]) // row major
 #define b(_i, _j) (_b[(_j)*K + (_i)]) // colum major
 #define c(_i, _j) (_c[(_i)*N + (_j)]) // row-major

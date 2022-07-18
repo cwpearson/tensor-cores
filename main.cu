@@ -21,7 +21,7 @@ using std::cout;
 using std::endl;
 using std::flush;
 
-int main(void)
+int main(int argc, char **argv)
 {
     srand(100);
 

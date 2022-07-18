@@ -23,7 +23,7 @@
    The x and y block dim should match BDX and BDY respectively
 */
 template <int TILE_X, int TILE_Y, int TILE_P>
-__global__ void mm_s(float *_c, const float *_a, const float *_b, const int m, const int n, const int p)
+__global__ void mm_s(float * __restrict__ _c, const float * __restrict__ _a, const float * __restrict__ _b, const int m, const int n, const int p)
 {
 #define a(_i, _j) _a[(_i)*p + (_j)]
 #define b(_i, _j) _b[(_i)*n + (_j)]
@@ -159,6 +159,8 @@ void GPUFloatRRRShmem::initialize(const Spec &spec)
 
     // GPU output
     CUDA_RUNTIME(cudaMallocManaged(&c_, sizeof(*c_) * m_ * n_));
+
+    CUDA_RUNTIME(cudaDeviceSetCacheConfig(cudaFuncCachePreferShared));
 }
 
 void GPUFloatRRRShmem::finalize()
@@ -166,18 +168,18 @@ void GPUFloatRRRShmem::finalize()
     CUDA_RUNTIME(cudaFree(a_));
     CUDA_RUNTIME(cudaFree(b_));
     CUDA_RUNTIME(cudaFree(c_));
+    CUDA_RUNTIME(cudaDeviceSetCacheConfig(cudaFuncCachePreferEqual));
 }
 
 double GPUFloatRRRShmem::sample()
 {
         
-            constexpr int SH_PER_BLOCK = 4 * 1024; // target shared memory useage per block
+            constexpr int SH_PER_BLOCK = 8 * 1024; // target shared memory useage per block
             constexpr int TILE_X = 32;
-            constexpr int TILE_Y = 8;
+            constexpr int TILE_Y = 16;
             constexpr int TILE_P = SH_PER_BLOCK / (TILE_X + TILE_Y) / sizeof(float);
             constexpr dim3 bd(TILE_X, TILE_Y, 1);
             const dim3 gd((n_ + bd.x - 1) / bd.x, (m_ + bd.y - 1) / bd.y, 1);
-
 
                 cudaEventRecord(start_, stream_);
                 mm_s<TILE_X, TILE_Y, TILE_P><<<gd, bd, 0, stream_>>>(c_, a_, b_, m_, n_, k_);
